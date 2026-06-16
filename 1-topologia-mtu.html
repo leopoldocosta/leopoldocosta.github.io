@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Topologia — onde a MTU muda no caminho</title>
+<style>
+  :root{
+    --ink:#1b1c1a; --ink2:#56564f; --ink3:#8a8a81;
+    --paper:#faf8f3; --card:#ffffff; --line:rgba(27,28,26,.12);
+    --blue:#2f6db0; --blue-bg:#e9f1fa; --blue-ink:#1c4773;
+    --coral:#c2562f; --coral-bg:#fbece4; --coral-ink:#8a3a1c;
+    --teal:#0f7a5e; --teal-bg:#e2f3ec; --teal-ink:#0a5642;
+    --amber:#c0851d; --amber-bg:#f8edd6; --amber-ink:#7d5610;
+    --mono:'SFMono-Regular',ui-monospace,'Menlo','Consolas',monospace;
+    --sans:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--sans);line-height:1.6;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:1000px;margin:0 auto;padding:52px 22px 72px}
+  .eyebrow{font-family:var(--mono);font-size:12px;letter-spacing:.18em;text-transform:uppercase;color:var(--coral);margin:0 0 12px}
+  h1{font-size:clamp(26px,4.4vw,38px);line-height:1.14;font-weight:680;margin:0 0 14px;letter-spacing:-.01em}
+  .lede{font-size:17px;color:var(--ink2);max-width:66ch;margin:0 0 30px}
+  .lede b{color:var(--ink);font-weight:600}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:22px 18px;margin:0 0 18px}
+  .scroll{overflow-x:auto}
+  svg.topo{display:block;width:100%;min-width:760px;height:auto}
+  .legend{display:flex;gap:20px;flex-wrap:wrap;font-family:var(--mono);font-size:12px;color:var(--ink2);margin:16px 4px 2px;padding-top:14px;border-top:1px solid var(--line)}
+  .legend span{display:inline-flex;align-items:center;gap:8px}
+  .sw{width:13px;height:13px;border-radius:3px;display:inline-block}
+  .cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px;margin-top:4px}
+  .pt{border:1px solid var(--line);border-radius:12px;padding:16px 16px 18px;background:var(--card)}
+  .pt .where{font-family:var(--mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase;display:block;margin-bottom:8px}
+  .pt h3{font-size:16px;margin:0 0 6px;font-weight:620}
+  .pt p{font-size:14px;color:var(--ink2);margin:0}
+  .pt code{font-family:var(--mono);font-size:12.5px;background:#efece4;padding:1px 5px;border-radius:4px;color:var(--ink)}
+  .down .where{color:var(--coral)} .down{border-left:3px solid var(--coral)}
+  .up .where{color:var(--teal)} .up{border-left:3px solid var(--teal)}
+  .keep .where{color:var(--amber)} .keep{border-left:3px solid var(--amber)}
+  .foot{margin-top:30px;padding-top:18px;border-top:1px solid var(--line);font-size:13.5px;color:var(--ink3);max-width:74ch}
+  .foot b{color:var(--ink2)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <p class="eyebrow">Topologia · pontos de mudança de MTU</p>
+  <h1>Onde a MTU muda entre o cliente e o servidor</h1>
+  <p class="lede">O cano representa o quadro de <b>1500 bytes</b> — sua altura é fixa. Dentro do túnel VPN, os cabeçalhos de encapsulamento (faixas amarela e coral) ocupam o cano e o <b>canal de dado útil</b> (verde) estreita: é aí que a MTU efetiva cai para ~1400 B. As mudanças acontecem nos roteadores, na entrada e na saída do túnel.</p>
+
+  <div class="card">
+    <div class="scroll">
+    <svg class="topo" viewBox="0 0 960 420" role="img" aria-label="Topologia de rede do cliente ao servidor. A MTU é 1500 bytes na LAN do cliente e na LAN do servidor; cai para cerca de 1400 bytes dentro do túnel VPN, que atravessa o núcleo MPLS. As mudanças ocorrem no roteador de entrada e no de saída do túnel.">
+
+      <!-- zonas (fundo) -->
+      <rect x="40" y="92" width="206" height="118" rx="14" fill="#e9f1fa" opacity=".55"/>
+      <rect x="246" y="92" width="354" height="118" rx="14" fill="#fbece4" opacity=".55"/>
+      <rect x="600" y="92" width="320" height="118" rx="14" fill="#e2f3ec" opacity=".55"/>
+      <text x="143" y="112" text-anchor="middle" font-family="-apple-system,sans-serif" font-size="12.5" font-weight="650" fill="#1c4773">Cliente · LAN</text>
+      <text x="423" y="112" text-anchor="middle" font-family="-apple-system,sans-serif" font-size="12.5" font-weight="650" fill="#8a3a1c">Transporte · MPLS + túnel VPN</text>
+      <text x="760" y="112" text-anchor="middle" font-family="-apple-system,sans-serif" font-size="12.5" font-weight="650" fill="#0a5642">Servidor · LAN</text>
+
+      <!-- ===== ÍCONES ===== -->
+      <!-- Cliente (laptop) cx=95 -->
+      <g stroke="#2f6db0" stroke-width="1.6" fill="#ffffff" stroke-linejoin="round">
+        <rect x="77" y="134" width="36" height="24" rx="2"/>
+        <path d="M71 160 H119 L123 166 H67 Z"/>
+      </g>
+      <text x="95" y="194" text-anchor="middle" font-family="-apple-system,sans-serif" font-size="13" fill="#1b1c1a">Cliente</text>
+
+      <!-- Firewall (cliente) cx=165 -->
+      <g stroke="#2f6db0" stroke-width="1.4" fill="#ffffff">
+        <rect x="146" y="134" width="38" height="28" rx="2"/>
+        <line x1="146" y1="143.3" x2="184" y2="143.3"/><line x1="146" y1="152.6" x2="184" y2="152.6"/>
+        <line x1="165" y1="134" x2="165" y2="143.3"/>
+        <line x1="155.6" y1="143.3" x2="155.6" y2="152.6"/><line x1="174.4" y1="143.3" x2="174.4" y2="152.6"/>
+        <line x1="165" y1="152.6" x2="165" y2="162"/>
+      </g>
+      <text x="165" y="194" text-anchor="middle" font-family="-apple-system,sans-serif" font-size="13" fill="#1b1c1a">Firewall</text>
+
+      <!-- Roteador A (ingresso do túnel) cx=235 -->
+      <g stroke="#2f6db0" stroke-width="1.5" fill="#ffffff">
+        <rect x="213" y="138" width="44" height="22" rx="5"/>
+        <polyline points="223,145 233,145" fill="none"/><polyline points="230,142 234,145 230,148" fill="none"/>
+        <polyline points="247,153 237,153" fill="none"/><polyline points="240,150 236,153 240,156" fill="none"/>
+      </g>
+      <text x="235" y="194" text-anchor="middle" font-family="-apple-system,sans-serif" font-size="13" fill="#1b1c1a">Roteador</text>
+
+      <!-- MPLS (nuvem) cx=430 -->
+      <path d="M409 165 q-19 0 -19 -15 q0 -13 15 -15 q3 -15 21 -15 q17 0 20 14 q16 -3 16 14 q0 17 -17 17 Z"
+            fill="#f8edd6" stroke="#c0851d" stroke-width="1.5"/>
+      <text x="430" y="153" text-anchor="middle" font-family="ui-monospace,monospace" font-size="13" font-weight="700" fill="#7d5610">MPLS</text>
+      <text x="430" y="194" text-anchor="middle" font-family="-apple-system,sans-serif" font-size="13" fill="#1b1c1a">Núcleo do provedor</text>
+
+      <!-- Roteador B (egresso do túnel) cx=645 -->
+      <g stroke="#0f7a5e" stroke-width="1.5" fill="#ffffff">
+        <rect x="623" y="138" width="44" height="22" rx="5"/>
+        <polyline points="633,145 643,145" fill="none"/><polyline points="640,142 644,145 640,148" fill="none"/>
+        <polyline points="657,153 647,153" fill="none"/><polyline points="650,150 646,153 650,156" fill="none"/>
+      </g>
+      <text x="645" y="194" text-anchor="middle" font-family="-apple-system,sans-serif" font-size="13" fill="#1b1c1a">Roteador</text>
+
+      <!-- Firewall (servidor) cx=715 -->
+      <g stroke="#0f7a5e" stroke-width="1.4" fill="#ffffff">
+        <rect x="696" y="134" width="38" height="28" rx="2"/>
+        <line x1="696" y1="143.3" x2="734" y2="143.3"/><line x1="696" y1="152.6" x2="734" y2="152.6"/>
+        <line x1="715" y1="134" x2="715" y2="143.3"/>
+        <line x1="705.6" y1="143.3" x2="705.6" y2="152.6"/><line x1="724.4" y1="143.3" x2="724.4" y2="152.6"/>
+        <line x1="715" y1="152.6" x2="715" y2="162"/>
+      </g>
+      <text x="715" y="194" text-anchor="middle" font-family="-apple-system,sans-serif" font-size="13" fill="#1b1c1a">Firewall</text>
+
+      <!-- WAF (escudo) cx=785 -->
+      <g stroke="#0f7a5e" stroke-width="1.5" fill="#ffffff" stroke-linejoin="round">
+        <path d="M785 132 L803 139 V151 Q803 163 785 169 Q767 163 767 151 V139 Z"/>
+        <polyline points="777,150 783,156 793,143" fill="none" stroke-width="1.8" stroke-linecap="round"/>
+      </g>
+      <text x="785" y="194" text-anchor="middle" font-family="-apple-system,sans-serif" font-size="13" fill="#1b1c1a">WAF</text>
+
+      <!-- Servidor (torre) cx=862 -->
+      <g stroke="#0f7a5e" stroke-width="1.5" fill="#ffffff">
+        <rect x="845" y="132" width="34" height="38" rx="3"/>
+        <line x1="851" y1="142" x2="873" y2="142"/><line x1="851" y1="151" x2="873" y2="151"/>
+        <circle cx="854" cy="161" r="1.6" fill="#0f7a5e" stroke="none"/>
+      </g>
+      <text x="862" y="194" text-anchor="middle" font-family="-apple-system,sans-serif" font-size="13" fill="#1b1c1a">Servidor</text>
+
+      <!-- ===== TÚNEL (bracket) ===== -->
+      <g stroke="#c2562f" stroke-width="1.3" fill="none" opacity=".8">
+        <path d="M235 251 V243 H645 V251"/>
+      </g>
+      <g fill="#c2562f"><rect x="356" y="229" width="10" height="8" rx="1.5"/></g>
+      <path d="M358 229 v-3 a3 3 0 0 1 6 0 v3" fill="none" stroke="#c2562f" stroke-width="1.4"/>
+      <text x="373" y="237" font-family="-apple-system,sans-serif" font-size="13" font-weight="600" fill="#8a3a1c">Túnel VPN (IPsec)</text>
+
+      <!-- ===== CANO / QUADRO 1500 B ===== -->
+      <defs><clipPath id="pipe"><rect x="50" y="255" width="860" height="92" rx="12"/></clipPath></defs>
+      <g clip-path="url(#pipe)">
+        <!-- lado cliente (50–235) -->
+        <rect x="50" y="255" width="185" height="10" fill="#e3ded2"/>
+        <rect x="50" y="265" width="185" height="82" fill="#d7efe4"/>
+        <!-- túnel (235–645) -->
+        <rect x="235" y="255" width="410" height="8"  fill="#f0d79a"/>
+        <rect x="235" y="263" width="410" height="22" fill="#f3cdbb"/>
+        <rect x="235" y="285" width="410" height="10" fill="#e3ded2"/>
+        <rect x="235" y="295" width="410" height="52" fill="#d7efe4"/>
+        <!-- lado servidor (645–910) -->
+        <rect x="645" y="255" width="265" height="10" fill="#e3ded2"/>
+        <rect x="645" y="265" width="265" height="82" fill="#d7efe4"/>
+      </g>
+      <rect x="50" y="255" width="860" height="92" rx="12" fill="none" stroke="rgba(27,28,26,.3)" stroke-width="1"/>
+      <!-- dividers nos pontos de mudança -->
+      <line x1="235" y1="255" x2="235" y2="347" stroke="#c2562f" stroke-width="1.3" stroke-dasharray="4 4"/>
+      <line x1="645" y1="255" x2="645" y2="347" stroke="#0f7a5e" stroke-width="1.3" stroke-dasharray="4 4"/>
+
+      <!-- rótulo "dado útil" dentro do verde -->
+      <text x="142" y="310" text-anchor="middle" font-family="ui-monospace,monospace" font-size="11.5" fill="#0a5642">dado útil</text>
+      <text x="440" y="325" text-anchor="middle" font-family="ui-monospace,monospace" font-size="11.5" fill="#0a5642">dado útil (menor)</text>
+      <text x="777" y="310" text-anchor="middle" font-family="ui-monospace,monospace" font-size="11.5" fill="#0a5642">dado útil</text>
+
+      <!-- ===== MTU por trecho + badges de mudança ===== -->
+      <text x="142" y="372" text-anchor="middle" font-family="ui-monospace,monospace" font-size="13" font-weight="700" fill="#1b1c1a">MTU 1500 B</text>
+      <text x="440" y="372" text-anchor="middle" font-family="ui-monospace,monospace" font-size="13" font-weight="700" fill="#8a3a1c">MTU útil ≈ 1400 B</text>
+      <text x="777" y="372" text-anchor="middle" font-family="ui-monospace,monospace" font-size="13" font-weight="700" fill="#1b1c1a">MTU 1500 B</text>
+
+      <!-- badge queda -->
+      <line x1="235" y1="347" x2="235" y2="386" stroke="#c2562f" stroke-width="1"/>
+      <g><rect x="200" y="386" width="70" height="20" rx="10" fill="#fbece4" stroke="#c2562f"/>
+        <text x="235" y="400" text-anchor="middle" font-family="ui-monospace,monospace" font-size="11" font-weight="700" fill="#8a3a1c">↓ −~100 B</text></g>
+      <!-- badge volta -->
+      <line x1="645" y1="347" x2="645" y2="386" stroke="#0f7a5e" stroke-width="1"/>
+      <g><rect x="610" y="386" width="70" height="20" rx="10" fill="#e2f3ec" stroke="#0f7a5e"/>
+        <text x="645" y="400" text-anchor="middle" font-family="ui-monospace,monospace" font-size="11" font-weight="700" fill="#0a5642">↑ +~100 B</text></g>
+    </svg>
+    </div>
+
+    <div class="legend">
+      <span><i class="sw" style="background:#d7efe4;border:1px solid #0f7a5e"></i>dado útil (payload)</span>
+      <span><i class="sw" style="background:#e3ded2;border:1px solid #b9b4a6"></i>cabeçalho IP+TCP</span>
+      <span><i class="sw" style="background:#f3cdbb;border:1px solid #c2562f"></i>encapsulamento IPsec</span>
+      <span><i class="sw" style="background:#f0d79a;border:1px solid #c0851d"></i>rótulos MPLS</span>
+    </div>
+  </div>
+
+  <div class="cols">
+    <div class="pt down">
+      <span class="where">Ponto 1 · roteador de entrada</span>
+      <h3>Aqui a MTU cai</h3>
+      <p>O roteador encapsula o pacote no túnel IPsec. O envelope ganha ~60–100 B, então o dado útil encolhe: a MTU efetiva vai de <code>1500</code> para <code>≈1400 B</code>.</p>
+    </div>
+    <div class="pt keep">
+      <span class="where">No meio · núcleo MPLS</span>
+      <h3>Mudança discreta</h3>
+      <p>Cada rótulo MPLS soma <code>4 B</code> (L3VPN usa ~2). O provedor normalmente usa quadros “baby giant” para manter os 1500 B do cliente — a pressão real vem do túnel.</p>
+    </div>
+    <div class="pt up">
+      <span class="where">Ponto 2 · roteador de saída</span>
+      <h3>Aqui a MTU volta</h3>
+      <p>O roteador remoto desencapsula o pacote. O envelope é removido e a LAN do servidor volta a operar com <code>1500 B</code> até o firewall, o WAF e o servidor.</p>
+    </div>
+  </div>
+
+  <div class="foot">
+    <b>Por que isso importa nas pontas:</b> o firewall e o WAF não mudam a MTU, mas se filtrarem o ICMP “fragmentation needed”, quebram o Path MTU Discovery — pacotes grandes somem em silêncio e a conexão trava. A defesa que não depende de ICMP é o <b>MSS clamping</b> no roteador do túnel (ex.: <code>ip tcp adjust-mss 1360</code>).
+  </div>
+
+  <div style="margin-top:48px;padding-top:18px;border-top:1px solid rgba(27,28,26,.1);display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px">
+    <div style="display:flex;align-items:center;gap:14px">
+      <div style="width:36px;height:36px;border-radius:50%;background:#1b1c1a;display:flex;align-items:center;justify-content:center;flex-shrink:0">
+        <span style="color:#faf8f3;font-family:-apple-system,sans-serif;font-size:14px;font-weight:700">LC</span>
+      </div>
+      <div>
+        <div style="font-family:-apple-system,sans-serif;font-size:13.5px;font-weight:640;color:#1b1c1a">Leopoldo Costa</div>
+        <div style="font-family:'SFMono-Regular',ui-monospace,monospace;font-size:11px;color:#8a8a81;margin-top:1px;letter-spacing:.04em">Idealizado por Leopoldo Costa · Gerado com Claude AI</div>
+      </div>
+    </div>
+    <div style="display:flex;align-items:center;gap:8px;opacity:.5">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" style="flex-shrink:0"><circle cx="12" cy="12" r="10" stroke="#1b1c1a" stroke-width="1.5"/><path d="M8 12c0-2.2 1.8-4 4-4s4 1.8 4 4-1.8 4-4 4" stroke="#1b1c1a" stroke-width="1.5" stroke-linecap="round"/></svg>
+      <span style="font-family:'SFMono-Regular',ui-monospace,monospace;font-size:11px;color:#1b1c1a;letter-spacing:.04em">claude.ai</span>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>

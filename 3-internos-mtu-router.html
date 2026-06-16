@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Como um roteador tem duas MTUs ao mesmo tempo</title>
+<style>
+  :root{
+    --ink:#1a1a18;--ink2:#55554e;--ink3:#8a8a81;
+    --paper:#faf8f3;--card:#ffffff;--line:rgba(27,28,26,.11);
+    --blue:#2b68aa;--blue-bg:#e8f0fa;--blue-ink:#1a4168;
+    --coral:#bf5130;--coral-bg:#fbeee8;--coral-ink:#883420;
+    --teal:#0d7557;--teal-bg:#e1f2eb;--teal-ink:#095040;
+    --amber:#b87e18;--amber-bg:#f7eccc;--amber-ink:#7a5210;
+    --mono:'SFMono-Regular',ui-monospace,Menlo,Consolas,monospace;
+    --sans:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--paper);color:var(--ink);font-family:var(--sans);line-height:1.65;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:1100px;margin:0 auto;padding:54px 24px 80px}
+  .eyebrow{font-family:var(--mono);font-size:11.5px;letter-spacing:.18em;text-transform:uppercase;color:var(--coral);margin-bottom:14px;display:block}
+  h1{font-size:clamp(26px,4vw,40px);line-height:1.12;font-weight:700;margin-bottom:14px;letter-spacing:-.015em}
+  .lede{font-size:17px;color:var(--ink2);max-width:66ch;margin-bottom:30px}
+  .lede b{color:var(--ink);font-weight:600}
+  h2{font-size:11.5px;font-family:var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--ink3);margin:48px 0 6px;display:flex;align-items:center;gap:10px}
+  h2::before{content:"";width:18px;height:1px;background:var(--coral)}
+  .sub{font-size:15.5px;color:var(--ink2);max-width:66ch;margin-bottom:18px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:22px 18px;margin-bottom:20px}
+  .scroll{overflow-x:auto}
+  svg{display:block}
+  .diag{width:100%;min-width:860px;height:auto}
+  .bars{width:100%;min-width:640px;height:auto}
+  .legend{display:flex;gap:20px;flex-wrap:wrap;font-family:var(--mono);font-size:12px;color:var(--ink2);margin-top:16px;padding-top:14px;border-top:1px solid var(--line)}
+  .legend span{display:inline-flex;align-items:center;gap:7px}
+  .sw{width:12px;height:12px;border-radius:3px;display:inline-block}
+  .cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:14px;margin-bottom:18px}
+  .pt{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px 17px 19px}
+  .pt .tag{font-family:var(--mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;display:block;margin-bottom:9px}
+  .pt h3{font-size:15.5px;font-weight:640;margin-bottom:7px}
+  .pt p{font-size:14px;color:var(--ink2);margin-bottom:8px}
+  .pt pre{font-family:var(--mono);font-size:12px;background:#f0ece3;padding:11px;border-radius:8px;overflow-x:auto;color:var(--ink2);line-height:1.75;white-space:pre}
+  .phys .tag{color:var(--blue)}.phys{border-left:3px solid var(--blue)}
+  .virt .tag{color:var(--coral)}.virt{border-left:3px solid var(--coral)}
+  .proc .tag{color:var(--amber)}.proc{border-left:3px solid var(--amber)}
+  .pass .tag{color:var(--teal)}.pass{border-left:3px solid var(--teal)}
+  .warn .tag{color:var(--coral)}.warn{border-left:3px solid var(--coral)}
+  .frag .tag{color:var(--amber)}.frag{border-left:3px solid var(--amber)}
+  .foot{margin-top:32px;padding-top:20px;border-top:1px solid var(--line);font-size:13.5px;color:var(--ink3);max-width:74ch}
+  .foot b{color:var(--ink2)}
+  .foot code{font-family:var(--mono);font-size:12.5px;background:#f0ece3;padding:1px 5px;border-radius:4px;color:var(--ink)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<span class="eyebrow">Internos do roteador · MTU · TCP MSS</span>
+<h1>Como um roteador tem MTU 1500<br>e MTU 1400 ao mesmo tempo</h1>
+<p class="lede">A MTU não pertence ao roteador — ela pertence a <b>cada interface separadamente</b>. O kernel do SO enxerga <code style="font-family:var(--mono);font-size:14px;background:#f0ece3;padding:1px 5px;border-radius:4px">eth0</code> e <code style="font-family:var(--mono);font-size:14px;background:#f0ece3;padding:1px 5px;border-radius:4px">tun0</code> como dispositivos de rede <b>distintos</b>, cada um com sua MTU própria. O subsistema de roteamento decide qual interface usar — e aí a MTU daquela interface passa a valer para o pacote.</p>
+
+<h2>Corte transversal: o que acontece dentro do roteador</h2>
+<p class="sub">O pacote "mergulha" do mundo físico (eth0 LAN, MTU 1500) para o virtual (tun0, MTU 1400), passa pela verificação, é encapsulado pelo IPsec e volta ao mundo físico (eth1 WAN, MTU 1500) como um pacote externo maior mas que ainda cabe nos 1500B.</p>
+
+<div class="card">
+<div class="scroll">
+<svg class="diag" viewBox="0 0 950 475" role="img" aria-label="Corte transversal do roteador mostrando o fluxo do pacote entre as interfaces física e virtual.">
+<defs>
+  <!-- Arrowheads -->
+  <marker id="ah-b" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto">
+    <polygon points="0,1 10,5 0,9" fill="#2b68aa"/>
+  </marker>
+  <marker id="ah-c" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto">
+    <polygon points="0,1 10,5 0,9" fill="#bf5130"/>
+  </marker>
+  <marker id="ah-t" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto">
+    <polygon points="0,1 10,5 0,9" fill="#0d7557"/>
+  </marker>
+  <!-- Clip router box -->
+  <clipPath id="clip-rtr">
+    <rect x="54" y="46" width="842" height="408" rx="20"/>
+  </clipPath>
+</defs>
+
+<!-- ====== ZONE BACKGROUNDS (clipped to router box) ====== -->
+<g clip-path="url(#clip-rtr)">
+  <!-- Physical zone -->
+  <rect x="54" y="46" width="842" height="175" fill="#e8f0fa"/>
+  <!-- Virtual zone -->
+  <rect x="54" y="221" width="842" height="233" fill="#fff5f0"/>
+</g>
+
+<!-- Router border -->
+<rect x="54" y="46" width="842" height="408" rx="20" fill="none" stroke="#c8c4bc" stroke-width="1.5"/>
+
+<!-- Divider line -->
+<line x1="54" y1="221" x2="896" y2="221" stroke="#bf5130" stroke-width="1.2" stroke-dasharray="7,4"/>
+
+<!-- Zone labels -->
+<text x="475" y="72" text-anchor="middle" font-family="-apple-system,sans-serif" font-size="12.5" font-weight="660" fill="#1a4168">MUNDO FÍSICO — Interfaces Ethernet — MTU 1500 (padrão IEEE 802.3)</text>
+<text x="475" y="244" text-anchor="middle" font-family="-apple-system,sans-serif" font-size="12.5" font-weight="660" fill="#883420">MUNDO VIRTUAL / LÓGICO — Interfaces lógicas — MTU configurável pelo operador</text>
+
+<!-- Divider label (left side) -->
+<text x="72" y="218" font-family="ui-monospace,monospace" font-size="10" fill="#8a8a81">── LIMIAR FÍSICO · VIRTUAL ──</text>
+
+<!-- ====== PHYSICAL BOXES ====== -->
+
+<!-- eth0 LAN -->
+<rect x="80" y="96" width="148" height="78" rx="10" fill="#ffffff" stroke="#2b68aa" stroke-width="1.3"/>
+<text x="154" y="124" text-anchor="middle" font-family="-apple-system,sans-serif" font-size="13.5" font-weight="640" fill="#1a1a18">eth0 LAN</text>
+<text x="154" y="145" text-anchor="middle" font-family="ui-monospace,monospace" font-size="12.5" font-weight="700" fill="#2b68aa">MTU 1500</text>
+<text x="154" y="163" text-anchor="middle" font-family="ui-monospace,monospace" font-size="10.5" fill="#8a8a81">interface física</text>
+
+<!-- Routing engine -->
+<rect x="320" y="90" width="218" height="90" rx="10" fill="#ffffff" stroke="#55554e" stroke-width="1.2"/>
+<text x="429" y="116" text-anchor="middle" font-family="-apple-system,sans-serif" font-size="13.5" font-weight="640" fill="#1a1a18">Tabela de Rotas</text>
+<text x="429" y="135" text-anchor="middle" font-family="ui-monospace,monospace" font-size="11" fill="#55554e">rede-remota/24  →  via tun0</text>
+<text x="429" y="152" text-anchor="middle" font-family="ui-monospace,monospace" font-size="10" fill="#8a8a81">tráfego local   →  via eth1</text>
+<text x="429" y="169" text-anchor="middle" font-family="ui-monospace,monospace" font-size="10" fill="#8a8a81">default         →  via eth1</text>
+
+<!-- eth1 WAN -->
+<rect x="728" y="96" width="148" height="78" rx="10" fill="#ffffff" stroke="#0d7557" stroke-width="1.3"/>
+<text x="802" y="124" text-anchor="middle" font-family="-apple-system,sans-serif" font-size="13.5" font-weight="640" fill="#1a1a18">eth1 WAN</text>
+<text x="802" y="145" text-anchor="middle" font-family="ui-monospace,monospace" font-size="12.5" font-weight="700" fill="#0d7557">MTU 1500</text>
+<text x="802" y="163" text-anchor="middle" font-family="ui-monospace,monospace" font-size="10.5" fill="#8a8a81">interface física</text>
+
+<!-- ====== VIRTUAL BOXES ====== -->
+
+<!-- tun0 (dashed = virtual/logical) -->
+<rect x="78" y="252" width="298" height="162" rx="10" fill="#ffffff" stroke="#bf5130" stroke-width="1.6" stroke-dasharray="7,4"/>
+<text x="227" y="283" text-anchor="middle" font-family="-apple-system,sans-serif" font-size="18" font-weight="720" fill="#883420">tun0</text>
+<text x="227" y="302" text-anchor="middle" font-family="-apple-system,sans-serif" font-size="11" fill="#8a8a81">interface virtual / lógica (kernel netdev)</text>
+<line x1="96" y1="312" x2="358" y2="312" stroke="#fbd6c8" stroke-width="1"/>
+<text x="227" y="331" text-anchor="middle" font-family="ui-monospace,monospace" font-size="13.5" font-weight="700" fill="#bf5130">MTU: 1400</text>
+<text x="227" y="350" text-anchor="middle" font-family="ui-monospace,monospace" font-size="11.5" fill="#55554e">ip mtu 1400</text>
+<text x="227" y="368" text-anchor="middle" font-family="ui-monospace,monospace" font-size="11.5" fill="#55554e">ip tcp adjust-mss 1360</text>
+<line x1="96" y1="378" x2="358" y2="378" stroke="#fbd6c8" stroke-width="1"/>
+<text x="120" y="396" font-family="ui-monospace,monospace" font-size="10.5" fill="#0d7557">✓ ≤ 1400B → passa ao IPsec</text>
+<text x="120" y="409" font-family="ui-monospace,monospace" font-size="10.5" fill="#883420">✕ &gt; 1400B → verificar DF</text>
+
+<!-- Decision diamond (MTU check) -->
+<polygon points="432,299 456,328 432,357 408,328" fill="#ffffff" stroke="#bf5130" stroke-width="1.5"/>
+<text x="432" y="323" text-anchor="middle" font-family="ui-monospace,monospace" font-size="10" font-weight="700" fill="#883420">≤ 1400?</text>
+<text x="432" y="335" text-anchor="middle" font-family="ui-monospace,monospace" font-size="9" fill="#883420">MTU check</text>
+
+<!-- IPsec engine -->
+<rect x="494" y="252" width="274" height="162" rx="10" fill="#ffffff" stroke="#b87e18" stroke-width="1.3"/>
+<text x="631" y="280" text-anchor="middle" font-family="-apple-system,sans-serif" font-size="14.5" font-weight="650" fill="#7a5210">Motor IPsec</text>
+<text x="631" y="298" text-anchor="middle" font-family="-apple-system,sans-serif" font-size="11.5" fill="#8a8a81">encapsulamento do pacote interno</text>
+<line x1="512" y1="308" x2="750" y2="308" stroke="#f5dec8" stroke-width="1"/>
+<text x="631" y="328" text-anchor="middle" font-family="ui-monospace,monospace" font-size="12" fill="#7a5210">+ IP externo (outer):  20 B</text>
+<text x="631" y="347" text-anchor="middle" font-family="ui-monospace,monospace" font-size="12" fill="#7a5210">+ ESP / AES-GCM:       40 B</text>
+<text x="631" y="366" text-anchor="middle" font-family="ui-monospace,monospace" font-size="12" fill="#7a5210">+ MPLS labels (×2):     8 B</text>
+<line x1="512" y1="376" x2="750" y2="376" stroke="#f5dec8" stroke-width="1"/>
+<text x="631" y="395" text-anchor="middle" font-family="ui-monospace,monospace" font-size="13" font-weight="700" fill="#b87e18">overhead: ≈ +68 B</text>
+<text x="631" y="411" text-anchor="middle" font-family="ui-monospace,monospace" font-size="11.5" fill="#7a5210">1400 + 68 = 1468 B ≤ 1500 ✓</text>
+
+<!-- ====== ARROWS ====== -->
+
+<!-- 1. Incoming → eth0 LAN -->
+<line x1="14" y1="135" x2="80" y2="135" stroke="#2b68aa" stroke-width="2.2" marker-end="url(#ah-b)"/>
+<!-- Pill label -->
+<rect x="10" y="117" width="70" height="16" rx="8" fill="#e8f0fa" stroke="#2b68aa" stroke-width="1"/>
+<text x="45" y="129" text-anchor="middle" font-family="ui-monospace,monospace" font-size="11" font-weight="600" fill="#1a4168">≤ 1500B</text>
+
+<!-- 2. eth0 LAN → Routing (physical, blue) -->
+<line x1="228" y1="135" x2="320" y2="135" stroke="#2b68aa" stroke-width="2.2" marker-end="url(#ah-b)"/>
+
+<!-- 3. Routing → tun0 (ELBOW, crosses boundary, coral) -->
+<path d="M429,180 L429,234 L227,234 L227,252" fill="none" stroke="#bf5130" stroke-width="2.2" marker-end="url(#ah-c)"/>
+<!-- Badge at boundary crossing point -->
+<rect x="398" y="210" width="62" height="18" rx="9" fill="#bf5130"/>
+<text x="429" y="222" text-anchor="middle" font-family="ui-monospace,monospace" font-size="10" font-weight="700" fill="#ffffff">↓ via tun0</text>
+<!-- Small crossing indicator on the elbow horizontal path -->
+<text x="320" y="228" font-family="ui-monospace,monospace" font-size="10" fill="#883420">routing decision</text>
+
+<!-- 4. tun0 right → Diamond left -->
+<line x1="376" y1="328" x2="408" y2="328" stroke="#bf5130" stroke-width="2" marker-end="url(#ah-c)"/>
+
+<!-- 5a. Diamond → IPsec (yes / sim - teal) -->
+<line x1="456" y1="328" x2="494" y2="328" stroke="#0d7557" stroke-width="2.2" marker-end="url(#ah-t)"/>
+<text x="475" y="320" text-anchor="middle" font-family="ui-monospace,monospace" font-size="10" fill="#0d7557">sim ✓</text>
+
+<!-- 5b. Diamond → ICMP / frag (no branch, downward) -->
+<path d="M432,357 L432,440" fill="none" stroke="#bf5130" stroke-width="1.4" stroke-dasharray="4,3"/>
+<polygon points="428,436 436,436 432,442" fill="#bf5130"/>
+<rect x="347" y="441" width="170" height="28" rx="7" fill="#fbeee8" stroke="#bf5130" stroke-width="1"/>
+<text x="432" y="452" text-anchor="middle" font-family="ui-monospace,monospace" font-size="10" fill="#883420">DF=1 → ICMP Frag Needed</text>
+<text x="432" y="465" text-anchor="middle" font-family="ui-monospace,monospace" font-size="10" fill="#883420">DF=0 → fragmenta o pacote</text>
+<text x="432" y="384" text-anchor="middle" font-family="ui-monospace,monospace" font-size="10" fill="#883420">não ✕</text>
+
+<!-- Inner packet size label -->
+<text x="474" y="314" text-anchor="middle" font-family="ui-monospace,monospace" font-size="11" fill="#55554e">inner ≤ 1400B</text>
+
+<!-- 6. IPsec → eth1 WAN (ELBOW, crosses boundary back, teal) -->
+<path d="M631,252 L631,198 L802,198 L802,174" fill="none" stroke="#0d7557" stroke-width="2.2" marker-end="url(#ah-t)"/>
+<!-- Badge at boundary crossing -->
+<rect x="596" y="208" width="70" height="18" rx="9" fill="#0d7557"/>
+<text x="631" y="221" text-anchor="middle" font-family="ui-monospace,monospace" font-size="10" font-weight="700" fill="#ffffff">↑ físico</text>
+<!-- Outer packet size label on horizontal segment -->
+<text x="717" y="190" text-anchor="middle" font-family="ui-monospace,monospace" font-size="11" fill="#0d7557">outer ≤ 1468B</text>
+
+<!-- 7. eth1 WAN → Outgoing -->
+<line x1="876" y1="135" x2="944" y2="135" stroke="#0d7557" stroke-width="2.2" marker-end="url(#ah-t)"/>
+<!-- Pill label -->
+<rect x="872" y="117" width="72" height="16" rx="8" fill="#e1f2eb" stroke="#0d7557" stroke-width="1"/>
+<text x="908" y="129" text-anchor="middle" font-family="ui-monospace,monospace" font-size="11" font-weight="600" fill="#095040">≤ 1500B ✓</text>
+
+<!-- Port indicators (small dots at interface entry/exit on box edges) -->
+<circle cx="80" cy="135" r="4" fill="#2b68aa"/>
+<circle cx="228" cy="135" r="4" fill="#2b68aa"/>
+<circle cx="876" cy="135" r="4" fill="#0d7557"/>
+<circle cx="728" cy="135" r="4" fill="#0d7557"/>
+
+<!-- "ROTEADOR" label in corner -->
+<text x="72" y="68" font-family="-apple-system,sans-serif" font-size="13" font-weight="700" fill="#1a1a18" letter-spacing=".06em">ROTEADOR</text>
+
+</svg>
+</div>
+<div class="legend">
+  <span><i class="sw" style="background:#e8f0fa;border:1px solid #2b68aa"></i>interface física (eth) MTU 1500</span>
+  <span><i class="sw" style="background:#fff5f0;border:1px dashed #bf5130"></i>interface virtual/lógica (tun0) MTU 1400</span>
+  <span><i class="sw" style="background:#f7eccc;border:1px solid #b87e18"></i>motor IPsec — encapsulamento</span>
+  <span><i class="sw" style="background:#2b68aa"></i>fluxo no mundo físico</span>
+  <span><i class="sw" style="background:#bf5130"></i>fluxo no mundo virtual</span>
+  <span><i class="sw" style="background:#0d7557"></i>fluxo de volta ao físico (outer)</span>
+</div>
+</div>
+
+<!-- ====== PACKET ANATOMY BARS ====== -->
+<h2>A conta que fecha — por que 1400 + 68 cabe em 1500</h2>
+<p class="sub">O pacote interno respeita o teto de 1400B imposto pelo tun0. O IPsec acrescenta ~68B de envelope. O total de 1468B é menor que a MTU 1500 da interface WAN — o frame cabe sem fragmentação.</p>
+
+<div class="card">
+<div class="scroll">
+<svg class="bars" viewBox="0 0 880 215" role="img" aria-label="Duas barras proporcionais mostrando o tamanho do pacote interno (1400 bytes) e externo (1468 bytes) em relação ao limite de 1500 bytes.">
+  <!-- 1500B limit reference -->
+  <line x1="828" y1="36" x2="828" y2="188" stroke="#c8c4bc" stroke-width="1" stroke-dasharray="5,3"/>
+  <text x="832" y="48" font-family="ui-monospace,monospace" font-size="11" fill="#8a8a81">1500B</text>
+  <text x="832" y="60" font-family="ui-monospace,monospace" font-size="10" fill="#8a8a81">(limite)</text>
+
+  <!-- == ROW 1: INNER PACKET == -->
+  <text x="60" y="48" font-family="-apple-system,sans-serif" font-size="12.5" font-weight="650" fill="#1a1a18">Pacote interno</text>
+  <text x="60" y="63" font-family="ui-monospace,monospace" font-size="11" fill="#8a8a81">LAN → tun0 · sujeito à MTU 1400</text>
+
+  <!-- IP+TCP header (40B = 22px) -->
+  <rect x="60" y="73" width="22" height="46" fill="#e3ded2" stroke="#c8c4bc" stroke-width=".8"/>
+  <!-- Payload (1360B = 746px) -->
+  <rect x="82" y="73" width="746" height="46" fill="#d7efe4" stroke="#0d7557" stroke-width=".8"/>
+
+  <!-- Label inside bars -->
+  <text x="71" y="100" text-anchor="middle" font-family="ui-monospace,monospace" font-size="9.5" fill="#55554e" transform="rotate(-90,71,100)">hdrs</text>
+  <text x="455" y="100" text-anchor="middle" font-family="ui-monospace,monospace" font-size="12.5" font-weight="600" fill="#0d7557">dados / payload  ·  1360 B</text>
+
+  <!-- End marker -->
+  <line x1="828" y1="73" x2="828" y2="119" stroke="#bf5130" stroke-width="1.5" stroke-dasharray="4,3"/>
+  <text x="828" y="131" text-anchor="middle" font-family="ui-monospace,monospace" font-size="11.5" font-weight="700" fill="#883420">1400B</text>
+  <text x="828" y="144" text-anchor="middle" font-family="ui-monospace,monospace" font-size="10" fill="#0d7557">≤ MTU tun0 ✓</text>
+
+  <!-- Size annotation below bar -->
+  <text x="71" y="128" text-anchor="middle" font-family="ui-monospace,monospace" font-size="9.5" fill="#8a8a81">40B</text>
+  <text x="205" y="128" text-anchor="middle" font-family="ui-monospace,monospace" font-size="9.5" fill="#8a8a81">1360B →</text>
+
+  <!-- == ROW 2: OUTER PACKET == -->
+  <text x="60" y="152" font-family="-apple-system,sans-serif" font-size="12.5" font-weight="650" fill="#1a1a18">Pacote externo após IPsec</text>
+  <text x="60" y="167" font-family="ui-monospace,monospace" font-size="11" fill="#8a8a81">tun0 → eth1 WAN · sujeito à MTU 1500</text>
+
+  <!-- IPsec overhead (68B = 37px) -->
+  <rect x="60" y="177" width="37" height="46" fill="#f3cdbb" stroke="#bf5130" stroke-width=".8"/>
+  <!-- IP+TCP inner (40B = 22px) -->
+  <rect x="97" y="177" width="22" height="46" fill="#e3ded2" stroke="#c8c4bc" stroke-width=".8"/>
+  <!-- Payload (1360B = 746px) -->
+  <rect x="119" y="177" width="746" height="46" fill="#d7efe4" stroke="#0d7557" stroke-width=".8"/>
+
+  <!-- Labels inside bars -->
+  <text x="78" y="208" text-anchor="middle" font-family="ui-monospace,monospace" font-size="9.5" fill="#883420" transform="rotate(-90,78,208)">+68B</text>
+  <text x="108" y="208" text-anchor="middle" font-family="ui-monospace,monospace" font-size="9.5" fill="#55554e" transform="rotate(-90,108,208)">hdrs</text>
+  <text x="492" y="204" text-anchor="middle" font-family="ui-monospace,monospace" font-size="12.5" font-weight="600" fill="#0d7557">dados / payload  ·  1360 B</text>
+
+  <!-- End marker row 2 -->
+  <line x1="865" y1="177" x2="865" y2="223" stroke="#0d7557" stroke-width="1.5" stroke-dasharray="4,3"/>
+  <text x="865" y="212" text-anchor="end" font-family="ui-monospace,monospace" font-size="11.5" font-weight="700" fill="#0d7557">1468B ≤ 1500B ✓</text>
+
+</svg>
+</div>
+</div>
+
+<!-- ====== CONFIG CARDS ====== -->
+<h2>Configuração por interface</h2>
+<div class="cols">
+  <div class="pt phys">
+    <span class="tag">Interface física</span>
+    <h3>eth0 LAN · eth1 WAN</h3>
+    <p>Interfaces Ethernet reais. A MTU 1500 é padrão IEEE 802.3 e não precisa ser declarada explicitamente na maioria dos sistemas.</p>
+    <pre>! Cisco IOS
+interface GigabitEthernet0/0
+ description LAN
+ ! mtu 1500  ← padrão, omissível
+
+interface GigabitEthernet0/1
+ description WAN-MPLS
+ ! mtu 1500  ← padrão, omissível</pre>
+  </div>
+  <div class="pt virt">
+    <span class="tag">Interface virtual — o ponto-chave</span>
+    <h3>tun0 / Tunnel0</h3>
+    <p>Interface <b>lógica criada pelo kernel</b> para representar o túnel. A MTU é configurada <em>menor</em> para acomodar os cabeçalhos de encapsulamento que serão adicionados.</p>
+    <pre>! Cisco IOS
+interface Tunnel0
+ description VPN-IPsec
+ ip mtu 1400
+ ip tcp adjust-mss 1360
+ tunnel source GigabitEthernet0/1
+ tunnel destination &lt;peer-ip&gt;
+ tunnel mode ipsec ipv4</pre>
+  </div>
+  <div class="pt proc">
+    <span class="tag">O que o kernel faz internamente</span>
+    <h3>Sequência na pilha IP</h3>
+    <p>A pilha IP trata <code style="font-family:var(--mono);font-size:12px;background:#f0ece3;padding:1px 4px;border-radius:3px">tun0</code> como qualquer outro dispositivo de rede. A MTU da interface selecionada pelo roteador define o limite para aquele pacote.</p>
+    <pre>1. Pacote chega em eth0 LAN (MTU 1500)
+2. ip_route_output → next-hop: tun0
+3. tun0.mtu = 1400 → verificação:
+   ├─ tamanho ≤ 1400B  → IPsec → eth1
+   ├─ tamanho &gt; 1400B, DF=1
+   │    → ICMP type 3, code 4
+   │      (Fragmentation Needed)
+   └─ tamanho &gt; 1400B, DF=0
+        → fragmenta antes de encapsular
+4. IPsec adiciona +68B → 1468B
+5. eth1.mtu = 1500 → 1468 ≤ 1500 ✓</pre>
+  </div>
+</div>
+
+<!-- ====== BEHAVIOR CARDS ====== -->
+<h2>O que o tun0 faz com pacotes grandes</h2>
+<div class="cols">
+  <div class="pt pass">
+    <span class="tag">Caminho feliz — DF=1 (TCP)</span>
+    <h3>Pacote ≤ 1400B: passa</h3>
+    <p>O MSS clamping garante que segmentos TCP nunca excedam 1360B de dados + 40B de cabeçalho = 1400B total. Esses pacotes passam direto pelo gate do tun0 sem nenhuma fragmentação.</p>
+  </div>
+  <div class="pt warn">
+    <span class="tag">Exceção — DF=1 sem MSS clamp</span>
+    <h3>Pacote &gt; 1400B: ICMP de volta</h3>
+    <p>O tun0 não consegue encaminhar e manda ICMP <code style="font-family:var(--mono);font-size:12px;background:#f0ece3;padding:1px 4px;border-radius:3px">type 3 code 4</code> (Fragmentation Needed) de volta ao remetente. Se o firewall bloquear esse ICMP: buraco-negro de MTU.</p>
+  </div>
+  <div class="pt frag">
+    <span class="tag">Alternativa — DF=0 (ex.: UDP)</span>
+    <h3>Pacote &gt; 1400B: fragmenta</h3>
+    <p>Se DF=0, o roteador quebra o pacote em fragmentos ≤ 1400B <em>antes</em> de encapsular. Cada fragmento recebe o envelope IPsec e chega separadamente. Caro em CPU; o destino remonta.</p>
+  </div>
+</div>
+
+<div class="foot">
+  <b>Por que o MSS clamping é a solução certa:</b> ele age no campo <code>MSS option</code> do TCP SYN antes de chegar ao gate do tun0, garantindo que segmentos TCP nunca excedam 1360B de payload (+ 40B = 1400B inner). Resultado: sem fragmentação, sem depender de ICMP, funciona mesmo com firewall e WAF filtrando pacotes ICMP do tipo "Fragmentation Needed".
+</div>
+
+</div>
+</body>
+</html>
